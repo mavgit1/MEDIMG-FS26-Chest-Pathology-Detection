@@ -16,19 +16,27 @@ LABEL_TO_ID = {k: i for i, k in enumerate(LABELS)}
 
 
 def build_transforms(image_size: int, train: bool, use_aug: bool) -> Callable[[Image.Image], torch.Tensor]:
-    base = [
-        T.Resize((image_size, image_size)),
-        T.ToTensor(),
-        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ]
+    """Eval: resize only. Train+aug: flip/rotate/jitter + RandomErasing (discourages corner shortcuts)."""
+    steps: list = []
     if train and use_aug:
-        aug = [
-            T.RandomHorizontalFlip(p=0.5),
-            T.RandomRotation(degrees=10),
-            T.ColorJitter(brightness=0.1, contrast=0.1),
+        steps.extend(
+            [
+                T.RandomHorizontalFlip(p=0.5),
+                T.RandomRotation(degrees=10),
+                T.ColorJitter(brightness=0.1, contrast=0.1),
+            ]
+        )
+    steps.extend(
+        [
+            T.Resize((image_size, image_size)),
+            T.ToTensor(),
         ]
-        return T.Compose(aug + base)
-    return T.Compose(base)
+    )
+    if train and use_aug:
+        # After ToTensor; erases random patches (often borders) so the model cannot rely on them.
+        steps.append(T.RandomErasing(p=0.25, scale=(0.02, 0.12), ratio=(0.3, 3.3), value=0))
+    steps.append(T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
+    return T.Compose(steps)
 
 
 class HFDataset(Dataset):

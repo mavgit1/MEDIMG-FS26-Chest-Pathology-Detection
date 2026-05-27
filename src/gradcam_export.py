@@ -8,13 +8,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from datasets import load_dataset
-from PIL import Image
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 from torchvision import transforms as T
 
-from .data import LABELS, LABEL_TO_ID
+from .data import LABELS, LABEL_TO_ID, build_transforms
 from .models import build_resnet18
 from .utils import ensure_dir
 
@@ -28,57 +27,9 @@ def parse_args():
     p.add_argument("--manifest", type=str, default=str(DEFAULT_MANIFEST))
     p.add_argument("--image_size", type=int, default=224)
     p.add_argument("--device", type=str, default="cuda")
-    p.add_argument("--per_category", type=int, default=3, help="Examples per TP/TN/FP/FN in manifest")
-    p.add_argument("--seed", type=int, default=0)
-    p.add_argument(
-        "--build_manifest",
-        action="store_true",
-        help="Write fixed test indices (from this ckpt) then exit",
-    )
-    p.add_argument(
-        "--center_crop",
-        action="store_true",
-        help="Use center-crop preprocessing (single-panel mode)",
-    )
-    p.add_argument(
-        "--compare",
-        action="store_true",
-        help="Side-by-side full-frame vs center-crop on the same fixed indices",
-    )
+    p.add_argument("--per_category", type=int, default=3)
+    p.add_argument("--build_manifest", action="store_true")
     return p.parse_args()
-
-
-def build_eval_transform(image_size: int, center_crop: bool) -> T.Compose:
-    if center_crop:
-        scale = int(image_size * 1.14)
-        return T.Compose(
-            [
-                T.Resize((scale, scale)),
-                T.CenterCrop(image_size),
-                T.ToTensor(),
-                T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ]
-        )
-    return T.Compose(
-        [
-            T.Resize((image_size, image_size)),
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ]
-    )
-
-
-def _pil_for_overlay(img: Image.Image, image_size: int, center_crop: bool) -> np.ndarray:
-    if center_crop:
-        scale = int(image_size * 1.14)
-        img = img.resize((scale, scale))
-        w, h = img.size
-        left = (w - image_size) // 2
-        top = (h - image_size) // 2
-        img = img.crop((left, top, left + image_size, top + image_size))
-    else:
-        img = img.resize((image_size, image_size))
-    return np.array(img).astype(np.float32) / 255.0
 
 
 def predict_all(model, ds, tfm, device: str) -> tuple[np.ndarray, np.ndarray]:
@@ -93,12 +44,7 @@ def predict_all(model, ds, tfm, device: str) -> tuple[np.ndarray, np.ndarray]:
     return np.array(y_true, dtype=np.int64), np.array(y_pred, dtype=np.int64)
 
 
-def select_case_indices(
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    per_category: int,
-) -> list[dict]:
-    """Deterministic: lowest test index first in each category."""
+def select_case_indices(y_true: np.ndarray, y_pred: np.ndarray, per_category: int) -> list[dict]:
     cases: list[dict] = []
     for name, mask_fn in [
         ("TP", lambda t, p: (t == 1) & (p == 1)),
@@ -108,34 +54,8 @@ def select_case_indices(
     ]:
         idxs = np.sort(np.where(mask_fn(y_true, y_pred))[0])
         for idx in idxs[:per_category]:
-            cases.append(
-                {
-                    "index": int(idx),
-                    "case_type": name,
-                    "true_label": int(y_true[idx]),
-                    "ref_pred": int(y_pred[idx]),
-                }
-            )
+            cases.append({"index": int(idx), "case_type": name, "true_label": int(y_true[idx])})
     return cases
-
-
-def load_manifest(path: Path) -> list[dict]:
-    data = json.loads(path.read_text())
-    return data["cases"]
-
-
-def save_manifest(path: Path, cases: list[dict], ckpt: str, per_category: int) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "ckpt_used_to_build": ckpt,
-                "per_category": per_category,
-                "cases": cases,
-            },
-            indent=2,
-        )
-    )
 
 
 def load_model(ckpt: str, device: str):
@@ -144,35 +64,6 @@ def load_model(ckpt: str, device: str):
     model.load_state_dict(state["model"])
     model.eval()
     return model
-
-
-def render_cam(
-    model,
-    cam: GradCAM,
-    ds,
-    case: dict,
-    image_size: int,
-    center_crop: bool,
-    device: str,
-    y_pred_current: int,
-) -> np.ndarray:
-    tfm = build_eval_transform(image_size, center_crop)
-    pneumonia_target = [ClassifierOutputTarget(LABEL_TO_ID["PNEUMONIA"])]
-
-    i = case["index"]
-    row = ds[i]
-    img = row["image"].convert("RGB")
-    x = tfm(img).unsqueeze(0).to(device)
-    grayscale = cam(input_tensor=x, targets=pneumonia_target)[0]
-    rgb = _pil_for_overlay(img, image_size, center_crop)
-    overlay = show_cam_on_image(rgb, grayscale, use_rgb=True)
-
-    true = int(row["label"])
-    title = (
-        f"#{i} {case['case_type']} "
-        f"true={LABELS[true]} pred={LABELS[y_pred_current]}"
-    )
-    return overlay, title
 
 
 def main():
@@ -184,58 +75,28 @@ def main():
 
     manifest_path = Path(args.manifest)
     ds = load_dataset("hf-vision/chest-xray-pneumonia", revision="refs/convert/parquet")["test"]
-    tfm_eval = build_eval_transform(args.image_size, center_crop=False)
+    tfm = build_transforms(args.image_size, train=False, use_aug=False)
     model = load_model(args.ckpt, device)
 
     if args.build_manifest:
-        y_true, y_pred = predict_all(model, ds, tfm_eval, device)
+        y_true, y_pred = predict_all(model, ds, tfm, device)
         cases = select_case_indices(y_true, y_pred, per_category=args.per_category)
-        save_manifest(manifest_path, cases, args.ckpt, args.per_category)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(
+            json.dumps({"ckpt_used_to_build": args.ckpt, "per_category": args.per_category, "cases": cases}, indent=2)
+        )
         print(f"wrote manifest ({len(cases)} cases) -> {manifest_path}")
         return
 
     if not manifest_path.exists():
-        raise FileNotFoundError(
-            f"Missing {manifest_path}. Run with --build_manifest once, e.g.\n"
-            f"  python -m src.gradcam_export --ckpt <ckpt> --build_manifest --per_category {args.per_category}"
-        )
+        raise FileNotFoundError(f"Missing {manifest_path}; run with --build_manifest first")
 
-    cases = load_manifest(manifest_path)
-    # Current predictions (for titles only; indices stay fixed)
-    y_true, y_pred = predict_all(model, ds, tfm_eval, device)
+    cases = json.loads(manifest_path.read_text())["cases"]
+    y_true, y_pred = predict_all(model, ds, tfm, device)
 
-    target_layers = [model.layer4[-1]]
-    cam = GradCAM(model=model, target_layers=target_layers)
+    cam = GradCAM(model=model, target_layers=[model.layer4[-1]])
+    pneumonia_target = [ClassifierOutputTarget(LABEL_TO_ID["PNEUMONIA"])]
 
-    if args.compare:
-        n = len(cases)
-        fig, axes = plt.subplots(n, 2, figsize=(9, 2.8 * n))
-        if n == 1:
-            axes = np.array([axes])
-        for row_ax, case in zip(axes, cases):
-            idx = case["index"]
-            pred_now = int(y_pred[idx])
-            for col, cc in enumerate([False, True]):
-                overlay, title = render_cam(
-                    model, cam, ds, case, args.image_size, cc, device, pred_now
-                )
-                row_ax[col].imshow(overlay)
-                row_ax[col].axis("off")
-                col_title = "Center crop" if cc else "Full frame"
-                row_ax[col].set_title(f"{col_title}\n{title}", fontsize=9)
-        fig.suptitle(
-            "Grad-CAM comparison (fixed test indices, target: PNEUMONIA)",
-            fontsize=12,
-        )
-        fig.tight_layout()
-        out_path = Path(out) / "gradcam_compare_fixed.png"
-        fig.savefig(out_path, dpi=160)
-        plt.close(fig)
-        print(f"wrote {out_path}")
-        return
-
-    center_crop = args.center_crop
-    suffix = "_centercrop" if center_crop else "_fullframe"
     n = len(cases)
     ncols = 4
     nrows = (n + ncols - 1) // ncols
@@ -243,22 +104,30 @@ def main():
     axes = np.array(axes).reshape(-1)
 
     for ax, case in zip(axes, cases):
-        idx = case["index"]
-        pred_now = int(y_pred[idx])
-        overlay, title = render_cam(
-            model, cam, ds, case, args.image_size, center_crop, device, pred_now
-        )
+        i = case["index"]
+        row = ds[i]
+        img = row["image"].convert("RGB")
+        x = tfm(img).unsqueeze(0).to(device)
+        pred = int(y_pred[i])
+        true = int(row["label"])
+
+        grayscale = cam(input_tensor=x, targets=pneumonia_target)[0]
+        rgb = np.array(img.resize((args.image_size, args.image_size))).astype(np.float32) / 255.0
+        overlay = show_cam_on_image(rgb, grayscale, use_rgb=True)
+
         ax.imshow(overlay)
         ax.axis("off")
-        ax.set_title(title, fontsize=8)
+        ax.set_title(
+            f"#{i} {case['case_type']} true={LABELS[true]} pred={LABELS[pred]}",
+            fontsize=8,
+        )
 
     for ax in axes[len(cases) :]:
         ax.axis("off")
 
-    mode = "center crop" if center_crop else "full frame"
-    fig.suptitle(f"Grad-CAM fixed indices ({mode}, target: PNEUMONIA)", fontsize=12)
+    fig.suptitle("Grad-CAM (fixed test indices, target: PNEUMONIA)", fontsize=12)
     fig.tight_layout()
-    out_path = Path(out) / f"gradcam_fixed{suffix}.png"
+    out_path = Path(out) / "gradcam_fixed.png"
     fig.savefig(out_path, dpi=160)
     plt.close(fig)
     print(f"wrote {out_path}")

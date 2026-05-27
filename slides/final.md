@@ -55,14 +55,13 @@ Loss: cross-entropy
 
 ---
 
-## Model 2 (Student modifications)
+## Model 2 (Student modification)
 
-**Training:** same ResNet18 + **focal loss** (γ = 2) for class imbalance
+Same ResNet18 + **focal loss** (γ = 2) for class imbalance
 
-**Explainability protocol (custom):**
-- Grad-CAM targets **PNEUMONIA** logit (not argmax)
-- **Center-crop** preprocessing to reduce border shortcuts
-- Qualitative panel: **TP / TN / FP / FN** (not random indices)
+**Augmentation (when enabled):** flip / rotation / jitter + **RandomErasing** to discourage border shortcuts (real training change, not viz-only)
+
+**Grad-CAM:** fixed test indices · targets **PNEUMONIA** logit · TP/TN/FP/FN panel
 
 ---
 
@@ -76,16 +75,16 @@ Loss: cross-entropy
 ## Robustness & Ablations
 
 - Loss: CE vs focal
-- Augmentation: on vs off
-- Data efficiency: 25% vs 100% train
+- **Augmentation:** off vs on (on includes **RandomErasing**)
+- Data efficiency: 25% vs 100% train (if run)
 
 ---
 
 ## Qualitative: Grad-CAM
 
-![compare](results/gradcam_compare_fixed.png)
+![gradcam](results/gradcam_fixed.png)
 
-**Fixed test indices** (same rows): full frame vs center-crop · target **PNEUMONIA** logit · up to 3 per TP/TN/FP/FN
+Fixed test indices (see `configs/gradcam_manifest.json`) · PNEUMONIA logit
 
 ---
 

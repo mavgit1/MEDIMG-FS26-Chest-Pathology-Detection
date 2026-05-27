@@ -43,20 +43,22 @@ Artifacts:
 - `results/runs.csv` (all metrics)
 - `results/*_roc.png`, `results/*_cm.png`
 
-## Grad-CAM (fixed images for comparison)
+## Augmentation ablation (CE, seed 0)
 
 ```bash
-# Once: lock which test indices to visualize (uses this checkpoint's TP/TN/FP/FN)
-python -m src.gradcam_export --ckpt checkpoints/resnet18_ce_aug1_frac1.0_seed0.pt --build_manifest --per_category 3
-
-# Same indices every time — compare preprocessing
-python -m src.gradcam_export --ckpt <ckpt> --compare
-
-# Or single panel
-python -m src.gradcam_export --ckpt <ckpt> --center_crop
+bash scripts/compare_augmentation.sh
 ```
 
-Manifest: `configs/gradcam_manifest.json`
+Aug **on** adds `RandomErasing` after resize (train only) to reduce reliance on border artifacts.
+
+## Grad-CAM
+
+```bash
+python -m src.gradcam_export --ckpt <ckpt> --build_manifest --per_category 3  # once
+python -m src.gradcam_export --ckpt <ckpt>
+```
+
+Fixed indices: `configs/gradcam_manifest.json`
 
 ## Slides (Marp)
 
