@@ -8,6 +8,17 @@ Minimal, reproducible chest X-ray **NORMAL vs PNEUMONIA** classifier using a sma
 
 ## Setup
 
+**Recommended (uv)** — faster on vast.ai / fresh machines; `requirements.txt` stays the source of truth:
+
+```bash
+# if needed: curl -LsSf https://astral.sh/uv/install.sh | sh
+uv venv .venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+```
+
+**Alternative (pip + venv):**
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
