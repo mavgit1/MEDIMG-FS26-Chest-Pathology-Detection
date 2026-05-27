@@ -21,10 +21,10 @@ def distribution_matched_random_baseline(y_true: np.ndarray, train_prevalence: f
     For AUC we use random probabilities in [0,1] (independent of y), which should yield ~0.5.
     """
     rng = np.random.default_rng(seed)
-    y_prob = rng.random(size=len(y_true))
-    # Optional: to make the *expected* positive rate match pi, you can calibrate threshold,
-    # but the rubric typically accepts chance-level AUC and distribution-aware accuracy.
-    # Here we use probs only; threshold=0.5 in eval gives a well-defined acc/f1.
+    # Draw random predictions with the same positive rate as the training set.
+    y_pred = rng.binomial(n=1, p=float(train_prevalence), size=len(y_true)).astype(np.int64)
+    # Use the sampled label as a degenerate probability (0/1). This matches the stated baseline.
+    y_prob = y_pred.astype(np.float64)
     m = evaluate_classifier_probs(y_true=y_true, y_prob=y_prob, threshold=0.5)
     return BaselineResult(auc=m["auc"], acc=m["acc"], f1=m["f1"])
 

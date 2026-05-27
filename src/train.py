@@ -126,7 +126,7 @@ def main():
         model_name="baseline_random_dist",
         cfg=cfg,
         y_true=y_test,
-        y_prob=np.random.default_rng(cfg.seed).random(len(y_test)),
+        y_prob=np.random.default_rng(cfg.seed).binomial(1, bundle.train_prevalence, size=len(y_test)).astype(float),
     )
     maj = majority_class_baseline(y_true=y_test)
     # majority baseline as constant probability == class id; for logging, provide y_prob
