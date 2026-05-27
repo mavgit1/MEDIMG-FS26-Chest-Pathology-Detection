@@ -83,9 +83,9 @@ Loss: cross-entropy
 
 ## Qualitative: Grad-CAM
 
-![cases](results/gradcam_cases_centercrop.png)
+![compare](results/gradcam_compare_fixed.png)
 
-Heatmaps target **pneumonia**; center-crop reduces corner artifacts vs full-frame maps
+**Fixed test indices** (same rows): full frame vs center-crop · target **PNEUMONIA** logit · up to 3 per TP/TN/FP/FN
 
 ---
 

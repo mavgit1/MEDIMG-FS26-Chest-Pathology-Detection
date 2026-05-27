@@ -43,6 +43,21 @@ Artifacts:
 - `results/runs.csv` (all metrics)
 - `results/*_roc.png`, `results/*_cm.png`
 
+## Grad-CAM (fixed images for comparison)
+
+```bash
+# Once: lock which test indices to visualize (uses this checkpoint's TP/TN/FP/FN)
+python -m src.gradcam_export --ckpt checkpoints/resnet18_ce_aug1_frac1.0_seed0.pt --build_manifest --per_category 3
+
+# Same indices every time — compare preprocessing
+python -m src.gradcam_export --ckpt <ckpt> --compare
+
+# Or single panel
+python -m src.gradcam_export --ckpt <ckpt> --center_crop
+```
+
+Manifest: `configs/gradcam_manifest.json`
+
 ## Slides (Marp)
 
 Slides live in `slides/final.md` and should be exported to PDF for submission.
