@@ -61,37 +61,44 @@ Same ResNet18 + **focal loss** (γ = 2) for class imbalance
 
 **Augmentation (when enabled):** flip / rotation / jitter + **RandomErasing** to discourage border shortcuts (real training change, not viz-only)
 
-**Grad-CAM:** fixed test indices · targets **PNEUMONIA** logit · TP/TN/FP/FN panel
+**Grad-CAM:** fixed test indices · CAM targets **each model’s predicted class**
+
+Reproduce: `bash scripts/reproduce.sh gradcam_compare`
 
 ---
 
 ## Results (Test)
 
-- Table filled from `results/runs.csv`
-- Figures auto-generated in `results/`
+- Table from `results/runs.csv` (filter `split=test`)
+- Pipeline: `bash scripts/reproduce.sh all`
 
 ---
 
 ## Robustness & Ablations
 
-- Loss: CE vs focal
-- **Augmentation:** off vs on (on includes **RandomErasing**)
-- Data efficiency: 25% vs 100% train (if run)
+| Stage | Command |
+|-------|---------|
+| No aug | `train_ce_no_aug` |
+| Aug + RandomErasing | `train_ce_aug` |
+| Focal loss | `train_focal_aug` |
+| 25% data | `ablation_data_25` |
+| 3 seeds | `SEEDS="0 1 2" bash scripts/reproduce.sh robustness` |
 
 ---
 
 ## Qualitative: Grad-CAM
 
-![gradcam](results/gradcam_fixed.png)
+![gradcam](results/gradcam_aug_off_vs_on.png)
 
-Fixed test indices (see `configs/gradcam_manifest.json`) · PNEUMONIA logit
+Ground truth · aug-off CAM (pred class) · aug-on CAM (pred class)  
+Same indices (`configs/gradcam_manifest.json`)
 
 ---
 
 ## Limitations & Ethics
 
-- Attention is **not always on pathology** — edges/markers can act as shortcuts
-- Maps are **partially anatomical, partially artifact-driven** → needs more analysis
+- Aug improved **test metrics** more than obvious **visual** CAM differences
+- Attention can follow edges/markers, not only pathology
 - Not deployment-ready without external validation and stronger explainability
 - Automation bias; false negatives are clinically critical
 

@@ -217,9 +217,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Project artifacts
-results/
-checkpoints/
+# Project artifacts (keep directory placeholders)
+results/*
+!results/.gitkeep
+checkpoints/*
+!checkpoints/.gitkeep
 slides/*.pdf
 *.pt
 *.pth

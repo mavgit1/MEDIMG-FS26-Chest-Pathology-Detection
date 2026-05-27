@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -100,8 +100,11 @@ def run_eval_and_log(
 ):
     metrics = evaluate_classifier_probs(y_true=y_true, y_prob=y_prob, threshold=0.5)
     save_eval_artifacts(out_dir=out_dir, y_true=y_true, y_prob=y_prob, title_prefix=f"{model_name} {split}")
+    cfg_dict = asdict(cfg) if is_dataclass(cfg) else {}
+    if not cfg_dict.get("stage"):
+        cfg_dict.pop("stage", None)
     row = {
-        **(asdict(cfg) if hasattr(cfg, "__dict__") or str(type(cfg)).endswith("TrainConfig'>") else {}),
+        **cfg_dict,
         "split": split,
         "model_name": model_name,
         "auc": metrics["auc"],

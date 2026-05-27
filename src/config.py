@@ -23,3 +23,6 @@ class TrainConfig:
     train_fraction: float = 1.0
     loss: str = "ce"  # "ce" | "focal"
 
+    # Reproduce pipeline label (logged in results/runs.csv)
+    stage: str = ""
+

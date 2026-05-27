@@ -1,70 +1,88 @@
 # Chest X-Ray Pneumonia Screening (MEDIMG FS26)
 
-Minimal, reproducible chest X-ray **NORMAL vs PNEUMONIA** classifier using a small public Hugging Face dataset and a library-first pipeline.
+Minimal, reproducible chest X-ray **NORMAL vs PNEUMONIA** classifier using a public Hugging Face dataset.
 
 ## Dataset
 
-- HF dataset: `hf-vision/chest-xray-pneumonia` (loaded from parquet conversion branch)
+- HF: `hf-vision/chest-xray-pneumonia` (`revision=refs/convert/parquet`)
+- Validation: 10% stratified hold-out from **train** (HF validation set is tiny)
+- Test: untouched HF test split
 
 ## Setup
 
-**Recommended (uv)** — faster on vast.ai / fresh machines; `requirements.txt` stays the source of truth:
-
 ```bash
-# if needed: curl -LsSf https://astral.sh/uv/install.sh | sh
-uv venv .venv
+bash scripts/setup.sh
 source .venv/bin/activate
-uv pip install -r requirements.txt
 ```
 
-**Alternative (pip + venv):**
+Optional overrides: copy `configs/reproduce.env.example` → `configs/reproduce.env`.
+
+## Reproducible pipeline (stages)
+
+Run named stages in order. Each training stage logs to `results/runs.csv` with a `stage` column.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+bash scripts/reproduce.sh list          # show all stages
+bash scripts/reproduce.sh clean         # wipe results/* and checkpoints/*
+bash scripts/reproduce.sh baselines     # random, majority, frozen ResNet18 + LR
+bash scripts/reproduce.sh train_ce_no_aug   # CE, no augmentation (before aug)
+bash scripts/reproduce.sh train_ce_aug      # CE + aug + RandomErasing (after aug)
+bash scripts/reproduce.sh train_focal_aug   # focal loss + augmentation (model 2)
+bash scripts/reproduce.sh ablation_data_25  # CE + aug, 25% train data
+bash scripts/reproduce.sh gradcam_manifest  # build configs/gradcam_manifest.json
+bash scripts/reproduce.sh gradcam_compare   # aug off vs on figure
+bash scripts/reproduce.sh all             # clean + full pipeline (SEEDS=0)
 ```
 
-## Run (CPU smoke test)
+Multi-seed robustness (CE + focal, aug on):
 
 ```bash
-python -m src.train --run_baselines_only --device cpu
+SEEDS="0 1 2" bash scripts/reproduce.sh robustness
 ```
 
-## Run (GPU training)
+Environment variables: `DEVICE`, `EPOCHS`, `BATCH_SIZE`, `SEEDS`, `RUNS_CSV`, `OUT_DIR`.
+
+## Manual training (single run)
 
 ```bash
-python -m src.train --device cuda --loss ce --use_aug 1 --seed 0
-python -m src.train --device cuda --loss focal --use_aug 1 --seed 0
+python -m src.train --device cuda --loss ce --use_aug 1 --seed 0 --stage train_ce_aug --skip_baselines
 ```
 
-Artifacts:
-
-- `results/runs.csv` (all metrics)
-- `results/*_roc.png`, `results/*_cm.png`
-
-## Augmentation ablation (CE, seed 0)
+Baselines only:
 
 ```bash
-bash scripts/compare_augmentation.sh
+python -m src.train --run_baselines_only --stage baselines --device cuda
 ```
-
-Aug **on** adds `RandomErasing` after resize (train only) to reduce reliance on border artifacts.
 
 ## Grad-CAM
 
+Fixed test indices: `configs/gradcam_manifest.json`
+
 ```bash
-python -m src.gradcam_export --ckpt <ckpt> --build_manifest --per_category 3  # once
-python -m src.gradcam_export --ckpt <ckpt>
+python -m src.gradcam_export --ckpt checkpoints/resnet18_ce_aug1_frac1.0_seed0.pt --build_manifest
+python -m src.gradcam_export --ckpt checkpoints/resnet18_ce_aug1_frac1.0_seed0.pt
+
+# Aug off vs on (ground truth | CAM | CAM)
+python scripts/compare_gradcam_panel.py \
+  --left_ckpt checkpoints/resnet18_ce_aug0_frac1.0_seed0.pt \
+  --right_ckpt checkpoints/resnet18_ce_aug1_frac1.0_seed0.pt \
+  --out results/gradcam_aug_off_vs_on.png
 ```
 
-Fixed indices: `configs/gradcam_manifest.json`
+## Artifacts
 
-## Slides (Marp)
+| Path | Description |
+|------|-------------|
+| `results/runs.csv` | All metrics (includes `stage`) |
+| `results/*_roc.png`, `*_cm.png` | Per-eval plots |
+| `checkpoints/resnet18_{loss}_aug{0,1}_frac{…}_seed{N}.pt` | Best val-AUC weights |
+| `results/gradcam_aug_off_vs_on.png` | Qualitative aug comparison |
 
-Slides live in `slides/final.md` and should be exported to PDF for submission.
+## Slides
 
-## Reproducibility
+`slides/final.md` (Marp) → export PDF for submission.
 
-- Fixed seeds `{0,1,2}`
-- Ablations: augmentation on/off, CE vs focal loss, 25% vs 100% train
+## Models
+
+1. **ResNet18 + CE** — with optional augmentation (flip / rotate / jitter / RandomErasing).
+2. **ResNet18 + focal loss (γ=2)** — same backbone, typically with augmentation on.

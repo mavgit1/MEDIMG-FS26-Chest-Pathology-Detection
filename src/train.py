@@ -39,6 +39,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--train_fraction", type=float, default=1.0)
     p.add_argument("--loss", type=str, default="ce", choices=["ce", "focal"])
     p.add_argument("--run_baselines_only", action="store_true")
+    p.add_argument(
+        "--skip_baselines",
+        action="store_true",
+        help="Skip baseline eval (use after stage `baselines` in reproduce.sh)",
+    )
+    p.add_argument(
+        "--stage",
+        type=str,
+        default="",
+        help="Pipeline stage name (stored in runs.csv for reproducibility)",
+    )
     return p.parse_args()
 
 
@@ -98,6 +109,7 @@ def main():
         use_aug=bool(args.use_aug),
         train_fraction=float(args.train_fraction),
         loss=args.loss,
+        stage=args.stage.strip(),
     )
 
     set_seed(cfg.seed)
@@ -120,45 +132,48 @@ def main():
         seed=cfg.seed,
     )
 
-    # Baselines on TEST split (what you show in slides)
-    y_test = np.array(bundle.ds["test"]["label"], dtype=np.int64)
-    rnd = distribution_matched_random_baseline(y_true=y_test, train_prevalence=bundle.train_prevalence, seed=cfg.seed)
-    run_eval_and_log(
-        runs_csv=args.runs_csv,
-        out_dir=out_dir,
-        split="test",
-        model_name="baseline_random_dist",
-        cfg=cfg,
-        y_true=y_test,
-        y_prob=np.random.default_rng(cfg.seed).binomial(1, bundle.train_prevalence, size=len(y_test)).astype(float),
-    )
-    maj = majority_class_baseline(y_true=y_test, train_majority_label=bundle.train_majority_label)
-    maj_prob = np.full(shape=(len(y_test),), fill_value=float(bundle.train_majority_label), dtype=np.float64)
-    run_eval_and_log(
-        runs_csv=args.runs_csv,
-        out_dir=out_dir,
-        split="test",
-        model_name="baseline_majority",
-        cfg=cfg,
-        y_true=y_test,
-        y_prob=maj_prob,
-    )
-
-    frozen, frozen_prob = frozen_resnet18_logistic_baseline(
-        bundle.train_loader, bundle.test_loader, device=device, seed=cfg.seed
-    )
-    run_eval_and_log(
-        runs_csv=args.runs_csv,
-        out_dir=out_dir,
-        split="test",
-        model_name="baseline_frozen_resnet_lr",
-        cfg=cfg,
-        y_true=y_test,
-        y_prob=frozen_prob,
-    )
+    if not args.skip_baselines:
+        y_test = np.array(bundle.ds["test"]["label"], dtype=np.int64)
+        rng = np.random.default_rng(cfg.seed)
+        y_prob_rnd = rng.binomial(1, bundle.train_prevalence, size=len(y_test)).astype(np.float64)
+        distribution_matched_random_baseline(
+            y_true=y_test, train_prevalence=bundle.train_prevalence, seed=cfg.seed
+        )
+        run_eval_and_log(
+            runs_csv=args.runs_csv,
+            out_dir=out_dir,
+            split="test",
+            model_name="baseline_random_dist",
+            cfg=cfg,
+            y_true=y_test,
+            y_prob=y_prob_rnd,
+        )
+        majority_class_baseline(y_true=y_test, train_majority_label=bundle.train_majority_label)
+        maj_prob = np.full(shape=(len(y_test),), fill_value=float(bundle.train_majority_label), dtype=np.float64)
+        run_eval_and_log(
+            runs_csv=args.runs_csv,
+            out_dir=out_dir,
+            split="test",
+            model_name="baseline_majority",
+            cfg=cfg,
+            y_true=y_test,
+            y_prob=maj_prob,
+        )
+        _, frozen_prob = frozen_resnet18_logistic_baseline(
+            bundle.train_loader, bundle.test_loader, device=device, seed=cfg.seed
+        )
+        run_eval_and_log(
+            runs_csv=args.runs_csv,
+            out_dir=out_dir,
+            split="test",
+            model_name="baseline_frozen_resnet_lr",
+            cfg=cfg,
+            y_true=y_test,
+            y_prob=frozen_prob,
+        )
 
     if args.run_baselines_only:
-        print({"random": rnd, "majority": maj, "frozen_lr": frozen})
+        print("Baselines logged to", args.runs_csv)
         return
 
     model = build_resnet18(num_classes=2, pretrained=True).to(device)
