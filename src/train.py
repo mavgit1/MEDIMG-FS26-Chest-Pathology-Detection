@@ -10,7 +10,11 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-from .baselines import distribution_matched_random_baseline, majority_class_baseline
+from .baselines import (
+    distribution_matched_random_baseline,
+    frozen_resnet18_logistic_baseline,
+    majority_class_baseline,
+)
 from .config import TrainConfig
 from .data import LABEL_TO_ID, load_data
 from .eval import run_eval_and_log
@@ -128,9 +132,8 @@ def main():
         y_true=y_test,
         y_prob=np.random.default_rng(cfg.seed).binomial(1, bundle.train_prevalence, size=len(y_test)).astype(float),
     )
-    maj = majority_class_baseline(y_true=y_test)
-    # majority baseline as constant probability == class id; for logging, provide y_prob
-    maj_prob = np.full(shape=(len(y_test),), fill_value=0.0, dtype=np.float64)  # predict NORMAL
+    maj = majority_class_baseline(y_true=y_test, train_majority_label=bundle.train_majority_label)
+    maj_prob = np.full(shape=(len(y_test),), fill_value=float(bundle.train_majority_label), dtype=np.float64)
     run_eval_and_log(
         runs_csv=args.runs_csv,
         out_dir=out_dir,
@@ -141,8 +144,21 @@ def main():
         y_prob=maj_prob,
     )
 
+    frozen, frozen_prob = frozen_resnet18_logistic_baseline(
+        bundle.train_loader, bundle.test_loader, device=device, seed=cfg.seed
+    )
+    run_eval_and_log(
+        runs_csv=args.runs_csv,
+        out_dir=out_dir,
+        split="test",
+        model_name="baseline_frozen_resnet_lr",
+        cfg=cfg,
+        y_true=y_test,
+        y_prob=frozen_prob,
+    )
+
     if args.run_baselines_only:
-        print({"random": rnd, "majority": maj})
+        print({"random": rnd, "majority": maj, "frozen_lr": frozen})
         return
 
     model = build_resnet18(num_classes=2, pretrained=True).to(device)

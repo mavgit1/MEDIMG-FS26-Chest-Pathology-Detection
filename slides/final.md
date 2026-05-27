@@ -22,7 +22,9 @@ Marvin Huber · Alex Libov · Joel Greiner
 
 - Hugging Face: `hf-vision/chest-xray-pneumonia` (parquet export)
 - **Binary labels**: NORMAL vs PNEUMONIA
-- Splits: train / valid / test provided
+- **HF splits (predefined):** train ~5.2k · official validation ~16 · test ~624
+- **Our validation:** 10% stratified hold-out from **train** (HF validation too small)
+- **Test:** untouched HF test set — used only for final numbers
 - License: CC BY 4.0
 
 ---
@@ -38,11 +40,11 @@ Marvin Huber · Alex Libov · Joel Greiner
 
 ---
 
-## Baselines (as discussed in class)
+## Baselines
 
-- **Distribution-matched random** classifier
-- **Majority class** classifier
-- (Optional) Frozen-feature logistic regression (if time)
+1. **Random** — labels drawn with train-set pneumonia rate (per course)
+2. **Majority** — always predict most common **train** class
+3. **Frozen ResNet18 + logistic regression** — ImageNet features, no CNN training
 
 ---
 
@@ -53,11 +55,14 @@ Loss: cross-entropy
 
 ---
 
-## Model 2 (Student modification)
+## Model 2 (Student modifications)
 
-Same ResNet18 backbone with:
-- stronger augmentation
-- **focal loss** (γ = 2) to emphasize harder examples
+**Training:** same ResNet18 + **focal loss** (γ = 2) for class imbalance
+
+**Explainability protocol (custom):**
+- Grad-CAM targets **PNEUMONIA** logit (not argmax)
+- **Center-crop** preprocessing to reduce border shortcuts
+- Qualitative panel: **TP / TN / FP / FN** (not random indices)
 
 ---
 
@@ -78,15 +83,18 @@ Same ResNet18 backbone with:
 
 ## Qualitative: Grad-CAM
 
-Insert `results/gradcam_grid.png`
+![cases](results/gradcam_cases_centercrop.png)
+
+Heatmaps target **pneumonia**; center-crop reduces corner artifacts vs full-frame maps
 
 ---
 
 ## Limitations & Ethics
 
-- Dataset bias / limited collection context → unknown generalization
-- Automation bias: model outputs must be interpreted cautiously
-- False negatives are critical in clinical settings (risk framing)
+- Attention is **not always on pathology** — edges/markers can act as shortcuts
+- Maps are **partially anatomical, partially artifact-driven** → needs more analysis
+- Not deployment-ready without external validation and stronger explainability
+- Automation bias; false negatives are clinically critical
 
 ---
 

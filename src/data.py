@@ -61,6 +61,8 @@ class DataBundle:
     val_loader: DataLoader
     test_loader: DataLoader
     train_prevalence: float
+    train_majority_label: int
+    val_source: str  # how validation was built (for README / slides)
 
 
 def load_data(
@@ -76,20 +78,21 @@ def load_data(
 ) -> DataBundle:
     ds = load_dataset(dataset_id, name=dataset_name, revision=dataset_revision) if dataset_revision else load_dataset(dataset_id, name=dataset_name)
 
-    # Some parquet-export branches have tiny validation splits; create a stable validation split from train if needed.
+    # HF provides train/validation/test, but validation can be tiny (e.g. 16 images).
+    # Use HF validation only when it has enough samples; otherwise hold out 10% of train (stratified).
     if "validation" in ds and len(ds["validation"]) >= 100:
-        valid_split_name = "validation"
+        val_source = "hf_validation"
         train_split = ds["train"]
         valid_split = ds["validation"]
     elif "valid" in ds and len(ds["valid"]) >= 100:
-        valid_split_name = "valid"
+        val_source = "hf_valid"
         train_split = ds["train"]
         valid_split = ds["valid"]
     else:
         split = ds["train"].train_test_split(test_size=0.1, seed=seed, stratify_by_column="label")
         train_split = split["train"]
         valid_split = split["test"]
-        valid_split_name = "train_split_0.1"
+        val_source = "train_90_10_stratified"
     tfm_train = build_transforms(image_size=image_size, train=True, use_aug=use_aug)
     tfm_eval = build_transforms(image_size=image_size, train=False, use_aug=False)
 
@@ -98,8 +101,10 @@ def load_data(
     test = HFDataset(ds["test"], tfm_eval, train_fraction=1.0, seed=seed)
 
     # prevalence computed from FULL train split (not fractional), to define distribution-matched random baseline
-    train_labels = np.array(ds["train"]["label"], dtype=np.int64)
+    train_labels = np.array(train_split["label"], dtype=np.int64)
     train_prevalence = float((train_labels == LABEL_TO_ID["PNEUMONIA"]).mean())
+    counts = np.bincount(train_labels, minlength=2)
+    train_majority_label = int(np.argmax(counts))
 
     train_loader = DataLoader(
         train, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True, drop_last=False
@@ -113,5 +118,7 @@ def load_data(
         val_loader=val_loader,
         test_loader=test_loader,
         train_prevalence=train_prevalence,
+        train_majority_label=train_majority_label,
+        val_source=val_source,
     )
 
