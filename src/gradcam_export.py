@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -17,14 +18,33 @@ from .data import LABELS, LABEL_TO_ID
 from .models import build_resnet18
 from .utils import ensure_dir
 
+DEFAULT_MANIFEST = Path("configs/gradcam_manifest.json")
+
 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--ckpt", type=str, required=True)
     p.add_argument("--out_dir", type=str, default="results")
+    p.add_argument("--manifest", type=str, default=str(DEFAULT_MANIFEST))
     p.add_argument("--image_size", type=int, default=224)
     p.add_argument("--device", type=str, default="cuda")
-    p.add_argument("--center_crop", action="store_true", help="Resize then center-crop to reduce border shortcuts")
+    p.add_argument("--per_category", type=int, default=3, help="Examples per TP/TN/FP/FN in manifest")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--build_manifest",
+        action="store_true",
+        help="Write fixed test indices (from this ckpt) then exit",
+    )
+    p.add_argument(
+        "--center_crop",
+        action="store_true",
+        help="Use center-crop preprocessing (single-panel mode)",
+    )
+    p.add_argument(
+        "--compare",
+        action="store_true",
+        help="Side-by-side full-frame vs center-crop on the same fixed indices",
+    )
     return p.parse_args()
 
 
@@ -61,19 +81,98 @@ def _pil_for_overlay(img: Image.Image, image_size: int, center_crop: bool) -> np
     return np.array(img).astype(np.float32) / 255.0
 
 
-def select_case_indices(y_true: np.ndarray, y_pred: np.ndarray) -> list[tuple[int, str]]:
-    """Pick one TP, TN, FP, FN if available (student qualitative protocol)."""
-    cases: list[tuple[int, str]] = []
+def predict_all(model, ds, tfm, device: str) -> tuple[np.ndarray, np.ndarray]:
+    y_true, y_pred = [], []
+    with torch.no_grad():
+        for i in range(len(ds)):
+            row = ds[i]
+            x = tfm(row["image"].convert("RGB")).unsqueeze(0).to(device)
+            logits = model(x)
+            y_true.append(int(row["label"]))
+            y_pred.append(int(torch.argmax(logits, dim=1).item()))
+    return np.array(y_true, dtype=np.int64), np.array(y_pred, dtype=np.int64)
+
+
+def select_case_indices(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    per_category: int,
+) -> list[dict]:
+    """Deterministic: lowest test index first in each category."""
+    cases: list[dict] = []
     for name, mask_fn in [
         ("TP", lambda t, p: (t == 1) & (p == 1)),
         ("TN", lambda t, p: (t == 0) & (p == 0)),
         ("FP", lambda t, p: (t == 0) & (p == 1)),
         ("FN", lambda t, p: (t == 1) & (p == 0)),
     ]:
-        idxs = np.where(mask_fn(y_true, y_pred))[0]
-        if len(idxs):
-            cases.append((int(idxs[0]), name))
+        idxs = np.sort(np.where(mask_fn(y_true, y_pred))[0])
+        for idx in idxs[:per_category]:
+            cases.append(
+                {
+                    "index": int(idx),
+                    "case_type": name,
+                    "true_label": int(y_true[idx]),
+                    "ref_pred": int(y_pred[idx]),
+                }
+            )
     return cases
+
+
+def load_manifest(path: Path) -> list[dict]:
+    data = json.loads(path.read_text())
+    return data["cases"]
+
+
+def save_manifest(path: Path, cases: list[dict], ckpt: str, per_category: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "ckpt_used_to_build": ckpt,
+                "per_category": per_category,
+                "cases": cases,
+            },
+            indent=2,
+        )
+    )
+
+
+def load_model(ckpt: str, device: str):
+    model = build_resnet18(num_classes=2, pretrained=False).to(device)
+    state = torch.load(ckpt, map_location=device)
+    model.load_state_dict(state["model"])
+    model.eval()
+    return model
+
+
+def render_cam(
+    model,
+    cam: GradCAM,
+    ds,
+    case: dict,
+    image_size: int,
+    center_crop: bool,
+    device: str,
+    y_pred_current: int,
+) -> np.ndarray:
+    tfm = build_eval_transform(image_size, center_crop)
+    pneumonia_target = [ClassifierOutputTarget(LABEL_TO_ID["PNEUMONIA"])]
+
+    i = case["index"]
+    row = ds[i]
+    img = row["image"].convert("RGB")
+    x = tfm(img).unsqueeze(0).to(device)
+    grayscale = cam(input_tensor=x, targets=pneumonia_target)[0]
+    rgb = _pil_for_overlay(img, image_size, center_crop)
+    overlay = show_cam_on_image(rgb, grayscale, use_rgb=True)
+
+    true = int(row["label"])
+    title = (
+        f"#{i} {case['case_type']} "
+        f"true={LABELS[true]} pred={LABELS[y_pred_current]}"
+    )
+    return overlay, title
 
 
 def main():
@@ -83,62 +182,84 @@ def main():
     if device == "cuda" and not torch.cuda.is_available():
         device = "cpu"
 
+    manifest_path = Path(args.manifest)
     ds = load_dataset("hf-vision/chest-xray-pneumonia", revision="refs/convert/parquet")["test"]
-    tfm = build_eval_transform(args.image_size, args.center_crop)
+    tfm_eval = build_eval_transform(args.image_size, center_crop=False)
+    model = load_model(args.ckpt, device)
 
-    model = build_resnet18(num_classes=2, pretrained=False).to(device)
-    state = torch.load(args.ckpt, map_location=device)
-    model.load_state_dict(state["model"])
-    model.eval()
+    if args.build_manifest:
+        y_true, y_pred = predict_all(model, ds, tfm_eval, device)
+        cases = select_case_indices(y_true, y_pred, per_category=args.per_category)
+        save_manifest(manifest_path, cases, args.ckpt, args.per_category)
+        print(f"wrote manifest ({len(cases)} cases) -> {manifest_path}")
+        return
+
+    if not manifest_path.exists():
+        raise FileNotFoundError(
+            f"Missing {manifest_path}. Run with --build_manifest once, e.g.\n"
+            f"  python -m src.gradcam_export --ckpt <ckpt> --build_manifest --per_category {args.per_category}"
+        )
+
+    cases = load_manifest(manifest_path)
+    # Current predictions (for titles only; indices stay fixed)
+    y_true, y_pred = predict_all(model, ds, tfm_eval, device)
 
     target_layers = [model.layer4[-1]]
     cam = GradCAM(model=model, target_layers=target_layers)
-    pneumonia_target = [ClassifierOutputTarget(LABEL_TO_ID["PNEUMONIA"])]
 
-    y_true_list, y_pred_list, probs_list = [], [], []
-    with torch.no_grad():
-        for i in range(len(ds)):
-            row = ds[i]
-            x = tfm(row["image"].convert("RGB")).unsqueeze(0).to(device)
-            logits = model(x)
-            pred = int(torch.argmax(logits, dim=1).item())
-            y_true_list.append(int(row["label"]))
-            y_pred_list.append(pred)
-            probs_list.append(float(torch.softmax(logits, dim=1)[0, 1].item()))
+    if args.compare:
+        n = len(cases)
+        fig, axes = plt.subplots(n, 2, figsize=(9, 2.8 * n))
+        if n == 1:
+            axes = np.array([axes])
+        for row_ax, case in zip(axes, cases):
+            idx = case["index"]
+            pred_now = int(y_pred[idx])
+            for col, cc in enumerate([False, True]):
+                overlay, title = render_cam(
+                    model, cam, ds, case, args.image_size, cc, device, pred_now
+                )
+                row_ax[col].imshow(overlay)
+                row_ax[col].axis("off")
+                col_title = "Center crop" if cc else "Full frame"
+                row_ax[col].set_title(f"{col_title}\n{title}", fontsize=9)
+        fig.suptitle(
+            "Grad-CAM comparison (fixed test indices, target: PNEUMONIA)",
+            fontsize=12,
+        )
+        fig.tight_layout()
+        out_path = Path(out) / "gradcam_compare_fixed.png"
+        fig.savefig(out_path, dpi=160)
+        plt.close(fig)
+        print(f"wrote {out_path}")
+        return
 
-    y_true = np.array(y_true_list, dtype=np.int64)
-    y_pred = np.array(y_pred_list, dtype=np.int64)
-    cases = select_case_indices(y_true, y_pred)
-
-    suffix = "_centercrop" if args.center_crop else ""
-    n = max(1, len(cases))
-    ncols = min(4, n)
+    center_crop = args.center_crop
+    suffix = "_centercrop" if center_crop else "_fullframe"
+    n = len(cases)
+    ncols = 4
     nrows = (n + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3.2 * nrows))
     axes = np.array(axes).reshape(-1)
 
-    for ax, (i, case_name) in zip(axes, cases):
-        row = ds[i]
-        img = row["image"].convert("RGB")
-        x = tfm(img).unsqueeze(0).to(device)
-        true = int(row["label"])
-        pred = y_pred[i]
-
-        grayscale = cam(input_tensor=x, targets=pneumonia_target)[0]
-        rgb = _pil_for_overlay(img, args.image_size, args.center_crop)
-        overlay = show_cam_on_image(rgb, grayscale, use_rgb=True)
-
+    for ax, case in zip(axes, cases):
+        idx = case["index"]
+        pred_now = int(y_pred[idx])
+        overlay, title = render_cam(
+            model, cam, ds, case, args.image_size, center_crop, device, pred_now
+        )
         ax.imshow(overlay)
         ax.axis("off")
-        ax.set_title(f"{case_name} true={LABELS[true]} pred={LABELS[pred]}")
+        ax.set_title(title, fontsize=8)
 
     for ax in axes[len(cases) :]:
         ax.axis("off")
 
-    fig.suptitle("Grad-CAM (target: PNEUMONIA logit)" + (" + center crop" if args.center_crop else ""), fontsize=12)
+    mode = "center crop" if center_crop else "full frame"
+    fig.suptitle(f"Grad-CAM fixed indices ({mode}, target: PNEUMONIA)", fontsize=12)
     fig.tight_layout()
-    out_path = Path(out) / f"gradcam_cases{suffix}.png"
-    fig.savefig(out_path, dpi=180)
+    out_path = Path(out) / f"gradcam_fixed{suffix}.png"
+    fig.savefig(out_path, dpi=160)
     plt.close(fig)
     print(f"wrote {out_path}")
 
