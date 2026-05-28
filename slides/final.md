@@ -136,7 +136,7 @@ Binary triage: **NORMAL vs PNEUMONIA** · Reproducible repo on GitHub
 - AUC measures **ranking**, accuracy depends on the **threshold**.
 - Explains why some runs look “worse” at 0.5 even with strong AUC.
 
-![width:820px](../results/summary/auc_vs_acc.png)
+![width:740px](../results/summary/auc_vs_acc.png)
 
 ---
 
