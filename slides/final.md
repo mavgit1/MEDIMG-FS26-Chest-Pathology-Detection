@@ -202,4 +202,4 @@ Artifacts: `results/test_summary.csv`, per-run plots under `results/<stage>/seed
 
 Questions?
 
-<span style="font-size: 18px">Repo: <code>MEDIMG-FS26-Chest-Pathology-Detection</code></span>
+<span style="font-size: 18px">Repo: <code>MEDIMG-FS26-Pneumonia-Detection</code></span>
