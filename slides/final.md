@@ -200,5 +200,6 @@ Artifacts: `results/test_summary.csv`, per-run plots under `results/<stage>/seed
 
 ## Thank you
 
-Repo: `MEDIMG-FS26-Chest-Pathology-Detection`  
 Questions?
+
+<span style="font-size: 18px">Repo: <code>MEDIMG-FS26-Chest-Pathology-Detection</code></span>
