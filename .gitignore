@@ -218,12 +218,16 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Project artifacts (keep directory placeholders)
+.DS_Store
 results/*
 !results/.gitkeep
 !results/gradcam/
 !results/gradcam/.gitkeep
+results/gradcam/*.png
+results/summary/*.png
 checkpoints/*
 !checkpoints/.gitkeep
 slides/*.pdf
+slides/*.html
 *.pt
 *.pth

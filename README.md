@@ -97,7 +97,7 @@ results/
 
 ## Slides
 
-`slides/final.md` (Marp) → export PDF for submission.
+Slides live in `slides/final.md` (exported PDF: `slides/final.pdf`).
 
 ## Models
 

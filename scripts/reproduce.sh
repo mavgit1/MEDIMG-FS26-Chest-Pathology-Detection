@@ -139,8 +139,23 @@ stage_gradcam_compare() {
     --right_ckpt "$(ckpt_ce_aug "$seed")" \
     --left_label "No augmentation" \
     --right_label "Aug + RandomErasing" \
-    --indices "0,1,2,8,11" \
+    --case_source manifest \
+    --max_rows 5 \
     --out "${OUT_DIR}/gradcam/aug_off_vs_on.png"
+}
+
+stage_gradcam_compare_full() {
+  activate_venv
+  local seed="${1:-0}"
+  python scripts/compare_gradcam_panel.py \
+    --device "$DEVICE" \
+    --left_ckpt "$(ckpt_ce_no_aug "$seed")" \
+    --right_ckpt "$(ckpt_ce_aug "$seed")" \
+    --left_label "No augmentation" \
+    --right_label "Aug + RandomErasing" \
+    --case_source manifest \
+    --max_rows 9 \
+    --out "${OUT_DIR}/gradcam/aug_off_vs_on_full.png"
 }
 
 stage_robustness() {
@@ -160,6 +175,7 @@ stage_all() {
   stage_ablation_data_25
   stage_gradcam_manifest
   stage_gradcam_compare
+  stage_gradcam_compare_full
   echo "Pipeline complete. Metrics: ${RUNS_CSV}"
 }
 
@@ -176,6 +192,7 @@ Stages (run in order for a full fresh experiment):
   gradcam_manifest   Build configs/gradcam_manifest.json (once per run)
   gradcam_single     Single-model panel (optional ckpt path arg)
   gradcam_compare    Aug off vs on (truth | CAM | CAM)
+  gradcam_compare_full  Same, using full manifest (9 rows)
   robustness         train_ce_aug + train_focal_aug for SEEDS=0 1 2
   all                clean + full pipeline (SEEDS default 0 only)
 
@@ -198,6 +215,7 @@ case "$STAGE" in
   gradcam_manifest) stage_gradcam_manifest ;;
   gradcam_single) stage_gradcam_single "$@" ;;
   gradcam_compare) stage_gradcam_compare "$@" ;;
+  gradcam_compare_full) stage_gradcam_compare_full "$@" ;;
   robustness) stage_robustness ;;
   all) stage_all ;;
   *)

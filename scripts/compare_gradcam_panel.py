@@ -75,6 +75,12 @@ def main():
     p.add_argument("--device", default="cuda")
     p.add_argument("--image_size", type=int, default=224)
     p.add_argument("--max_rows", type=int, default=6)
+    p.add_argument(
+        "--layout",
+        choices=["vertical", "horizontal"],
+        default="vertical",
+        help="vertical: cases as rows, 3 columns. horizontal: 3 rows, cases as columns.",
+    )
     args = p.parse_args()
 
     device = args.device
@@ -94,11 +100,16 @@ def main():
         cases = json.loads(Path(args.manifest).read_text())["cases"][: args.max_rows]
 
     n = len(cases)
-    fig, axes = plt.subplots(n, 3, figsize=(10.5, 2.8 * n))
-    if n == 1:
-        axes = np.array([axes])
+    if args.layout == "horizontal":
+        fig, axes = plt.subplots(3, n, figsize=(3.1 * n, 8.0))
+        if n == 1:
+            axes = np.array([[axes[0]], [axes[1]], [axes[2]]])
+    else:
+        fig, axes = plt.subplots(n, 3, figsize=(10.5, 2.8 * n))
+        if n == 1:
+            axes = np.array([axes])
 
-    for row, case in enumerate(cases):
+    for k, case in enumerate(cases):
         i = case["index"]
         img = ds[i]["image"].convert("RGB")
         true = int(ds[i]["label"])
@@ -110,31 +121,49 @@ def main():
         ov_l = overlay_for(left, img, tfm, device, args.image_size, pred_l)
         ov_r = overlay_for(right, img, tfm, device, args.image_size, pred_r)
 
-        ax_truth, ax_l, ax_r = axes[row]
-        ax_truth.imshow(rgb)
-        ax_l.imshow(ov_l)
-        ax_r.imshow(ov_r)
-        for ax in (ax_truth, ax_l, ax_r):
-            ax.axis("off")
-
         ok_l = "✓" if pred_l == true else "✗"
         ok_r = "✓" if pred_r == true else "✗"
-        ax_truth.set_title(f"#{i}\nGround truth: {LABELS[true]}", fontsize=9, fontweight="bold")
-        ax_l.set_title(
-            f"{args.left_label}\nPrediction: {LABELS[pred_l]} {ok_l}  ({conf_l:.0%})\n"
-            f"Grad-CAM → {LABELS[pred_l]}",
-            fontsize=8,
-        )
-        ax_r.set_title(
-            f"{args.right_label}\nPrediction: {LABELS[pred_r]} {ok_r}  ({conf_r:.0%})\n"
-            f"Grad-CAM → {LABELS[pred_r]}",
-            fontsize=8,
-        )
 
-    fig.suptitle(
-        "Left: ground truth · Center/right: Grad-CAM for each model’s predicted class",
-        fontsize=11,
-    )
+        if args.layout == "horizontal":
+            ax_truth = axes[0, k]
+            ax_l = axes[1, k]
+            ax_r = axes[2, k]
+
+            ax_truth.imshow(rgb)
+            ax_l.imshow(ov_l)
+            ax_r.imshow(ov_r)
+            for ax in (ax_truth, ax_l, ax_r):
+                ax.axis("off")
+
+            ax_truth.set_title(f"#{i}\nGT: {LABELS[true]}", fontsize=9, fontweight="bold")
+            ax_l.set_title(f"{args.left_label}\n{LABELS[pred_l]} {ok_l} ({conf_l:.0%})", fontsize=8)
+            ax_r.set_title(f"{args.right_label}\n{LABELS[pred_r]} {ok_r} ({conf_r:.0%})", fontsize=8)
+
+            if k == 0:
+                axes[0, 0].set_ylabel("Ground truth", fontsize=9)
+                axes[1, 0].set_ylabel("Grad-CAM (pred)", fontsize=9)
+                axes[2, 0].set_ylabel("Grad-CAM (pred)", fontsize=9)
+        else:
+            ax_truth, ax_l, ax_r = axes[k]
+            ax_truth.imshow(rgb)
+            ax_l.imshow(ov_l)
+            ax_r.imshow(ov_r)
+            for ax in (ax_truth, ax_l, ax_r):
+                ax.axis("off")
+
+            ax_truth.set_title(f"#{i}\nGround truth: {LABELS[true]}", fontsize=9, fontweight="bold")
+            ax_l.set_title(
+                f"{args.left_label}\nPrediction: {LABELS[pred_l]} {ok_l}  ({conf_l:.0%})\n"
+                f"Grad-CAM → {LABELS[pred_l]}",
+                fontsize=8,
+            )
+            ax_r.set_title(
+                f"{args.right_label}\nPrediction: {LABELS[pred_r]} {ok_r}  ({conf_r:.0%})\n"
+                f"Grad-CAM → {LABELS[pred_r]}",
+                fontsize=8,
+            )
+
+    fig.suptitle("Grad-CAM for each model’s predicted class", fontsize=11)
     fig.tight_layout()
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
