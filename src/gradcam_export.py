@@ -21,7 +21,7 @@ DEFAULT_MANIFEST = Path("configs/gradcam_manifest.json")
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--ckpt", type=str, required=True)
-    p.add_argument("--out_dir", type=str, default="results")
+    p.add_argument("--out_dir", type=str, default="results/gradcam")
     p.add_argument("--manifest", type=str, default=str(DEFAULT_MANIFEST))
     p.add_argument("--image_size", type=int, default=224)
     p.add_argument("--device", type=str, default="cuda")

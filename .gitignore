@@ -220,6 +220,8 @@ __marimo__/
 # Project artifacts (keep directory placeholders)
 results/*
 !results/.gitkeep
+!results/gradcam/
+!results/gradcam/.gitkeep
 checkpoints/*
 !checkpoints/.gitkeep
 slides/*.pdf

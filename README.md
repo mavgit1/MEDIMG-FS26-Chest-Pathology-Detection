@@ -73,10 +73,27 @@ python scripts/compare_gradcam_panel.py \
 
 | Path | Description |
 |------|-------------|
-| `results/runs.csv` | All metrics (includes `stage`) |
-| `results/*_roc.png`, `*_cm.png` | Per-eval plots |
+| `results/runs.csv` | Full log (every val epoch + test); columns `stage`, `artifact_dir`, `ckpt_path` |
+| `results/test_summary.csv` | **One row per test eval** — use this for slides / seed aggregates |
+| `results/<stage>/seed_<N>/` | `test_roc.png`, `test_cm.png` for that run |
+| `results/baselines/` | Baseline ROC/CM plots |
+| `results/gradcam/` | Grad-CAM figures |
 | `checkpoints/resnet18_{loss}_aug{0,1}_frac{…}_seed{N}.pt` | Best val-AUC weights |
-| `results/gradcam_aug_off_vs_on.png` | Qualitative aug comparison |
+
+Example layout after `reproduce.sh all`:
+
+```
+results/
+  runs.csv
+  test_summary.csv
+  baselines/
+    baseline_frozen_resnet_lr_test_roc.png
+  train_ce_no_aug/seed_0/test_roc.png
+  train_ce_aug/seed_0/test_roc.png
+  train_focal_aug/seed_0/test_roc.png
+  ablation_data_25/seed_0/test_roc.png
+  gradcam/aug_off_vs_on.png
+```
 
 ## Slides
 

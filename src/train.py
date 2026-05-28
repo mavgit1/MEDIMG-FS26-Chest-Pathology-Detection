@@ -19,7 +19,7 @@ from .config import TrainConfig
 from .data import LABEL_TO_ID, load_data
 from .eval import run_eval_and_log
 from .models import FocalLoss, build_resnet18
-from .utils import ensure_dir, set_seed
+from .utils import artifact_dir, checkpoint_path, ensure_dir, model_tag, set_seed
 
 
 def parse_args() -> argparse.Namespace:
@@ -113,7 +113,10 @@ def main():
     )
 
     set_seed(cfg.seed)
-    out_dir = ensure_dir(args.out_dir)
+    results_root = ensure_dir(args.out_dir)
+    summary_csv = results_root / "test_summary.csv"
+    stage = cfg.stage or "manual"
+    run_dir = artifact_dir(results_root, cfg, stage)
 
     device = cfg.device
     if device == "cuda" and not torch.cuda.is_available():
@@ -132,6 +135,8 @@ def main():
         seed=cfg.seed,
     )
 
+    baseline_dir = artifact_dir(results_root, cfg, "baselines")
+
     if not args.skip_baselines:
         y_test = np.array(bundle.ds["test"]["label"], dtype=np.int64)
         rng = np.random.default_rng(cfg.seed)
@@ -141,39 +146,42 @@ def main():
         )
         run_eval_and_log(
             runs_csv=args.runs_csv,
-            out_dir=out_dir,
+            out_dir=baseline_dir,
             split="test",
             model_name="baseline_random_dist",
-            cfg=cfg,
+            cfg=replace(cfg, stage="baselines"),
             y_true=y_test,
             y_prob=y_prob_rnd,
+            summary_csv=summary_csv,
         )
         majority_class_baseline(y_true=y_test, train_majority_label=bundle.train_majority_label)
         maj_prob = np.full(shape=(len(y_test),), fill_value=float(bundle.train_majority_label), dtype=np.float64)
         run_eval_and_log(
             runs_csv=args.runs_csv,
-            out_dir=out_dir,
+            out_dir=baseline_dir,
             split="test",
             model_name="baseline_majority",
-            cfg=cfg,
+            cfg=replace(cfg, stage="baselines"),
             y_true=y_test,
             y_prob=maj_prob,
+            summary_csv=summary_csv,
         )
         _, frozen_prob = frozen_resnet18_logistic_baseline(
             bundle.train_loader, bundle.test_loader, device=device, seed=cfg.seed
         )
         run_eval_and_log(
             runs_csv=args.runs_csv,
-            out_dir=out_dir,
+            out_dir=baseline_dir,
             split="test",
             model_name="baseline_frozen_resnet_lr",
-            cfg=cfg,
+            cfg=replace(cfg, stage="baselines"),
             y_true=y_test,
             y_prob=frozen_prob,
+            summary_csv=summary_csv,
         )
 
     if args.run_baselines_only:
-        print("Baselines logged to", args.runs_csv)
+        print("Baselines logged to", args.runs_csv, "| plots:", baseline_dir)
         return
 
     model = build_resnet18(num_classes=2, pretrained=True).to(device)
@@ -187,9 +195,9 @@ def main():
 
     scaler = torch.cuda.amp.GradScaler() if (device == "cuda" and cfg.use_amp) else None
 
+    tag = model_tag(cfg)
     best_auc = -1.0
-    ckpt_dir = ensure_dir("checkpoints")
-    ckpt_path = ckpt_dir / f"resnet18_{cfg.loss}_aug{int(cfg.use_aug)}_frac{cfg.train_fraction}_seed{cfg.seed}.pt"
+    ckpt_path = checkpoint_path(cfg)
 
     for epoch in range(cfg.epochs):
         t0 = time.time()
@@ -204,12 +212,13 @@ def main():
         val_prob, val_y = predict_probs(model, bundle.val_loader, device=device)
         val_metrics = run_eval_and_log(
             runs_csv=args.runs_csv,
-            out_dir=out_dir,
+            out_dir=run_dir,
             split="valid",
-            model_name=f"resnet18_{cfg.loss}_aug{int(cfg.use_aug)}",
+            model_name=tag,
             cfg=cfg,
             y_true=val_y,
             y_prob=val_prob,
+            save_plots=False,
         )
         dt = time.time() - t0
         print(
@@ -226,13 +235,16 @@ def main():
     test_prob, test_y = predict_probs(model, bundle.test_loader, device=device)
     run_eval_and_log(
         runs_csv=args.runs_csv,
-        out_dir=out_dir,
+        out_dir=run_dir,
         split="test",
-        model_name=f"resnet18_{cfg.loss}_aug{int(cfg.use_aug)}",
+        model_name=tag,
         cfg=cfg,
         y_true=test_y,
         y_prob=test_prob,
+        ckpt_path=ckpt_path,
+        summary_csv=summary_csv,
     )
+    print(f"Test metrics -> {summary_csv} | plots: {run_dir} | ckpt: {ckpt_path}")
 
 
 if __name__ == "__main__":

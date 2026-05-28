@@ -30,6 +30,35 @@ def ensure_dir(path: str | Path) -> Path:
     return p
 
 
+def model_tag(cfg) -> str:
+    """Stable model id for logs, plots, and checkpoints."""
+    tag = f"resnet18_{cfg.loss}_aug{int(cfg.use_aug)}"
+    if float(cfg.train_fraction) != 1.0:
+        frac_s = str(cfg.train_fraction).replace(".", "p")
+        tag += f"_frac{frac_s}"
+    return tag
+
+
+def checkpoint_path(cfg, ckpt_root: str | Path = "checkpoints") -> Path:
+    return Path(ckpt_root) / (
+        f"resnet18_{cfg.loss}_aug{int(cfg.use_aug)}_frac{cfg.train_fraction}_seed{cfg.seed}.pt"
+    )
+
+
+def artifact_dir(base: str | Path, cfg, stage: str = "") -> Path:
+    """
+    Per-run output folder, e.g. results/train_ce_aug/seed_0/ or results/baselines/.
+    """
+    base = Path(base)
+    if stage:
+        sub = base / stage
+    else:
+        sub = base / model_tag(cfg)
+    if stage != "baselines":
+        sub = sub / f"seed_{cfg.seed}"
+    return ensure_dir(sub)
+
+
 def to_device(x: Any, device: str):
     import torch
 

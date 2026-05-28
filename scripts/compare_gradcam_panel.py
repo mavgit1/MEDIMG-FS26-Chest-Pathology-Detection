@@ -71,7 +71,7 @@ def main():
     p.add_argument("--manifest", default="configs/gradcam_manifest.json")
     p.add_argument("--indices", default="", help="Comma-separated test indices")
     p.add_argument("--case_source", choices=["manifest", "rescued"], default="manifest")
-    p.add_argument("--out", default="results/gradcam_compare_aug.png")
+    p.add_argument("--out", default="results/gradcam/aug_off_vs_on.png")
     p.add_argument("--device", default="cuda")
     p.add_argument("--image_size", type=int, default=224)
     p.add_argument("--max_rows", type=int, default=6)

@@ -140,7 +140,7 @@ stage_gradcam_compare() {
     --left_label "No augmentation" \
     --right_label "Aug + RandomErasing" \
     --indices "0,1,2,8,11" \
-    --out "${OUT_DIR}/gradcam_aug_off_vs_on.png"
+    --out "${OUT_DIR}/gradcam/aug_off_vs_on.png"
 }
 
 stage_robustness() {

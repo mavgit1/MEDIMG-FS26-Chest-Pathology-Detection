@@ -69,7 +69,7 @@ Reproduce: `bash scripts/reproduce.sh gradcam_compare`
 
 ## Results (Test)
 
-- Table from `results/runs.csv` (filter `split=test`)
+- Table from `results/test_summary.csv` (or filter `runs.csv` for `split=test`)
 - Pipeline: `bash scripts/reproduce.sh all`
 
 ---
@@ -88,7 +88,7 @@ Reproduce: `bash scripts/reproduce.sh gradcam_compare`
 
 ## Qualitative: Grad-CAM
 
-![gradcam](results/gradcam_aug_off_vs_on.png)
+![gradcam](results/gradcam/aug_off_vs_on.png)
 
 Ground truth · aug-off CAM (pred class) · aug-on CAM (pred class)  
 Same indices (`configs/gradcam_manifest.json`)
